@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Volume Viewer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <aside id="panel" aria-label="Controls">
+
+      <section class="group">
+        <label class="row" for="specimen"><span>Specimen</span>
+          <select id="specimen"></select>
+        </label>
+      </section>
+
+      <section class="group">
+        <h2>Layers</h2>
+        <ul id="layer-list" class="layer-list"></ul>
+      </section>
+
+      <section class="group" id="layer-controls">
+        <h2 id="lc-title">Layer controls</h2>
+        <label class="row"><span>Opacity</span>
+          <input type="range" id="lc-opacity" min="0" max="1" step="0.01"><output id="lc-opacity-v"></output></label>
+        <div class="row stack">
+          <span>Contrast limits <small>(counts)</small></span>
+          <div class="clim">
+            <input type="range" id="lc-clim-lo" min="0" max="1000" step="1" aria-label="Contrast lower limit">
+            <input type="range" id="lc-clim-hi" min="0" max="1000" step="1" aria-label="Contrast upper limit">
+          </div>
+          <div class="clim-nums">
+            <input type="number" id="lc-clim-lo-n" step="any" aria-label="Lower limit in counts">
+            <input type="number" id="lc-clim-hi-n" step="any" aria-label="Upper limit in counts">
+            <button id="lc-auto" title="Set limits from the data (0.5th and 99.95th percentile)">Auto</button>
+            <button id="lc-reset" title="Back to this specimen's default limits">Reset</button>
+          </div>
+        </div>
+        <label class="row"><span>Gamma</span>
+          <input type="range" id="lc-gamma" min="0.2" max="2" step="0.01"><output id="lc-gamma-v"></output></label>
+        <label class="row"><span>Colormap</span>
+          <select id="lc-cmap"></select><span id="lc-swatch" class="swatch wide"></span></label>
+        <label class="row"><span>Blending</span>
+          <select disabled><option>additive</option></select></label>
+        <label class="row"><span>Rendering</span>
+          <select id="lc-render">
+            <option value="mip">mip</option>
+            <option value="attenuated_mip">attenuated_mip</option>
+            <option value="iso">iso</option>
+            <option value="average">average</option>
+          </select></label>
+        <label class="row" id="lc-att-row"><span>Attenuation</span>
+          <input type="range" id="lc-att" min="0" max="2" step="0.01"><output id="lc-att-v"></output></label>
+        <label class="row" id="lc-iso-row"><span>Iso threshold</span>
+          <input type="range" id="lc-iso" min="0" max="1000" step="1"><output id="lc-iso-v"></output></label>
+      </section>
+
+      <section class="group">
+        <h2>View</h2>
+        <div class="row buttons">
+          <button id="btn-ndisplay" title="Toggle 2D / 3D (Ctrl+Y)">2D</button>
+          <button id="btn-reset" title="Reset the camera (Home)">Reset view</button>
+          <button id="btn-shot" title="Save a PNG of the canvas">Screenshot</button>
+        </div>
+        <label class="row" id="slice-row"><span>z slice</span>
+          <input type="range" id="slice" min="0" max="1" step="1"><output id="slice-v"></output></label>
+        <label class="row"><span>Perspective</span>
+          <input type="range" id="persp" min="0" max="60" step="1" value="0"><output id="persp-v"></output></label>
+        <label class="row"><span>Interpolation</span>
+          <select id="interp"><option value="linear">linear</option><option value="nearest">nearest</option></select></label>
+        <label class="row"><span>Quality</span>
+          <select id="quality"><option value="2">fast</option><option value="1" selected>normal</option><option value="0.5">fine</option></select></label>
+        <label class="row check"><input type="checkbox" id="keep"><span>Keep layer settings when switching specimen</span></label>
+      </section>
+
+    </aside>
+
+    <main id="stage">
+      <canvas id="gl" aria-label="Volume rendering"></canvas>
+      <canvas id="overlay" aria-hidden="true"></canvas>
+      <div id="loading" role="status"><div class="bar"><div id="loading-bar"></div></div><span id="loading-text">Loading…</span></div>
+      <div id="status" aria-live="polite"></div>
+    </main>
+  </div>
+  <div id="lock" class="hidden" role="dialog" aria-modal="true" aria-labelledby="lock-title">
+    <form id="lock-form" autocomplete="on">
+      <h2 id="lock-title">Password required</h2>
+      <p>These volumes are encrypted. Enter the password you were given to decrypt them in this browser.</p>
+      <input type="text" name="username" value="copepod-viewer" autocomplete="username" hidden>
+      <input type="password" id="lock-pw" autocomplete="current-password" aria-label="Password" required autofocus>
+      <label class="check"><input type="checkbox" id="lock-remember" checked> Remember while this tab is open</label>
+      <button type="submit" id="lock-go">Unlock</button>
+      <p id="lock-msg" role="alert"></p>
+    </form>
+  </div>
+  <script type="module" src="viewer.js"></script>
+</body>
+</html>
