@@ -26,6 +26,8 @@ uniform vec2 uPan;         // um, view space
 uniform float uCamDist;    // 0 = orthographic
 uniform int uMode;         // 0 = 3D, 1 = 2D
 uniform float uSliceZ;     // um, centred data coordinate (2D)
+uniform int uProj;         // 2D: 0 = single z slice, 1 = max projection along z
+uniform float uNz;         // number of z slices
 uniform float uStep;       // um
 uniform float uRelStep;    // step in voxels (attenuated mip)
 uniform vec2 uVis;
@@ -75,7 +77,16 @@ void main() {
     vec3 tc = p / uSize + 0.5;
     for (int c = 0; c < 2; c++) {
       if (uVis[c] < 0.5) continue;
-      col += lut(c, normC(c, counts(c, sampleV(c, tc)))) * uOpacity[c];
+      float s = 0.0;
+      if (uProj == 1) {
+        for (int k = 0; k < 2048; k++) {
+          if (float(k) >= uNz) break;
+          s = max(s, sampleV(c, vec3(tc.xy, (float(k) + 0.5) / uNz)));
+        }
+      } else {
+        s = sampleV(c, tc);
+      }
+      col += lut(c, normC(c, counts(c, s))) * uOpacity[c];
     }
     outColor = vec4(min(col, 1.0), 1.0);
     return;
@@ -171,7 +182,7 @@ const S = {
   specimens: [], colormaps: {}, meta: null, sid: null,
   layers: [], selected: 0,
   q: [0, 0, 0, 1], scale: 1, pan: [0, 0], fov: 0,
-  ndisplay: 3, slice: 0, interp: "linear", quality: 1,
+  ndisplay: 3, slice: 0, proj: "slice", interp: "linear", quality: 1,
   interacting: false, idleTimer: null, dirty: true, loadToken: 0, key: null,
 };
 
@@ -467,6 +478,8 @@ function render() {
   gl.uniform1f(U.uCamDist, camDist);
   gl.uniform1i(U.uMode, S.ndisplay === 2 ? 1 : 0);
   gl.uniform1f(U.uSliceZ, (S.slice + 0.5) * vox[2] - size[2] / 2);
+  gl.uniform1i(U.uProj, S.proj === "mip" ? 1 : 0);
+  gl.uniform1f(U.uNz, dims[2]);
   gl.uniform1f(U.uStep, step);
   gl.uniform1f(U.uRelStep, step / minVox);
   gl.uniform2f(U.uVis, L0.visible ? 1 : 0, S.layers[1] && L1.visible ? 1 : 0);
@@ -682,7 +695,7 @@ window.addEventListener("keydown", (e) => {
   if (e.target.matches("input[type=number], select")) return;
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); toggleNdisplay(); }
   else if (e.key === "Home") resetView();
-  else if (S.ndisplay === 2 && (e.key === "ArrowLeft" || e.key === "ArrowRight") && !e.target.matches("input[type=range]")) {
+  else if (S.ndisplay === 2 && S.proj === "slice" && (e.key === "ArrowLeft" || e.key === "ArrowRight") && !e.target.matches("input[type=range]")) {
     setSlice(S.slice + (e.key === "ArrowRight" ? 1 : -1));
   }
 });
@@ -693,9 +706,16 @@ function updateStatus(x, y) {
   const [vx, vy] = dataXY(x, y);
   const i = Math.floor((vx + size[0] / 2) / vox[0]), j = Math.floor((vy + size[1] / 2) / vox[1]);
   if (i < 0 || j < 0 || i >= dims[0] || j >= dims[1]) { setStatusHelp(); return; }
-  const idx = (S.slice * dims[1] + j) * dims[0] + i;
-  const vals = S.layers.map((L) => `${L.name} ${Math.round(L.maxCounts * (L.data[idx] / 255) ** 2)}`).join(" · ");
-  $("status").textContent = `[z ${(S.slice * vox[2]).toFixed(1)}, y ${(j * vox[1]).toFixed(1)}, x ${(i * vox[0]).toFixed(1)}] µm   ${vals} counts (8-bit display copy)`;
+  const plane = dims[0] * dims[1];
+  const valueAt = (L) => {
+    if (S.proj !== "mip") return L.data[S.slice * plane + j * dims[0] + i];
+    let m = 0;
+    for (let k = 0; k < dims[2]; k++) m = Math.max(m, L.data[k * plane + j * dims[0] + i]);
+    return m;
+  };
+  const vals = S.layers.map((L) => `${L.name} ${Math.round(L.maxCounts * (valueAt(L) / 255) ** 2)}`).join(" · ");
+  const zText = S.proj === "mip" ? "max over z" : `z ${(S.slice * vox[2]).toFixed(1)}`;
+  $("status").textContent = `[${zText}, y ${(j * vox[1]).toFixed(1)}, x ${(i * vox[0]).toFixed(1)}] µm   ${vals} counts (8-bit display copy)`;
 }
 
 function setStatusHelp() {
@@ -707,7 +727,9 @@ function setStatusHelp() {
   }
   $("status").textContent = S.ndisplay === 3
     ? "Drag: rotate · Shift-drag or right-drag: pan · Wheel: zoom · Double-click or Home: reset · Ctrl+Y: 2D/3D"
-    : "Drag: pan · Wheel: zoom · ←/→: change slice · Hover: coordinates and values · Ctrl+Y: 3D";
+    : S.proj === "mip"
+      ? "Max projection along z · Drag: pan · Wheel: zoom · Hover: coordinates and maximum values · Ctrl+Y: 3D"
+      : "Drag: pan · Wheel: zoom · ←/→: change slice · Hover: coordinates and values · Ctrl+Y: 3D";
 }
 
 // ------------------------------------------------------------------ UI
@@ -820,7 +842,9 @@ function setSlice(k) {
 function updateViewControls() {
   $("btn-ndisplay").textContent = S.ndisplay === 3 ? "2D" : "3D";
   $("btn-ndisplay").title = S.ndisplay === 3 ? "Switch to 2D slicing (Ctrl+Y)" : "Switch to 3D rendering (Ctrl+Y)";
-  $("slice-row").style.display = S.ndisplay === 2 ? "" : "none";
+  $("proj-row").style.display = S.ndisplay === 2 ? "" : "none";
+  $("slice-row").style.display = S.ndisplay === 2 && S.proj === "slice" ? "" : "none";
+  $("proj").value = S.proj;
   $("slice").max = S.meta.shape_zyx[0] - 1;
   setSlice(S.slice);
   $("persp-v").textContent = `${S.fov}°`;
@@ -831,6 +855,7 @@ function bindViewControls() {
   $("btn-reset").addEventListener("click", resetView);
   $("btn-shot").addEventListener("click", screenshot);
   $("slice").addEventListener("input", (e) => setSlice(+e.target.value));
+  $("proj").addEventListener("change", (e) => { S.proj = e.target.value; updateViewControls(); setStatusHelp(); requestRender(); });
   $("persp").addEventListener("input", (e) => { S.fov = +e.target.value; $("persp-v").textContent = `${S.fov}°`; requestRender(); });
   $("interp").addEventListener("change", (e) => { S.interp = e.target.value; setFilter(); requestRender(); });
   $("quality").addEventListener("change", (e) => { S.quality = +e.target.value; requestRender(); });
@@ -848,7 +873,7 @@ function screenshot() {
   c.toBlob((b) => {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(b);
-    a.download = `${S.sid}_${S.ndisplay}d.png`;
+    a.download = `${S.sid}_${S.ndisplay === 3 ? "3d" : S.proj === "mip" ? "2d_mip" : `2d_z${S.slice}`}.png`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   });
